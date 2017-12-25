@@ -1,34 +1,29 @@
-#include <Winsock2.h>
-#include <iostream>
-
-using namespace std;
+#include "main.h"
 
 int main() {
-    cout << "Start." << endl;
-    WORD wVersionRequested = MAKEWORD(2, 2);
-    WSADATA wsaData{};
+    cout << "Server Start." << endl;
+    WORD version = MAKEWORD(2, 2);
+    WSADATA data{};
 
     // Load winsocket dll
     cout << "Loading..." << endl;
-    if (WSAStartup(wVersionRequested, &wsaData) == SOCKET_ERROR) {
+    if (WSAStartup(version, &data) == SOCKET_ERROR) {
         cout << "Error occurred in initialization." << endl;
         return -1;
     } else {
         // Check the lowest and highest byte of the version in HEX
-        if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2) {
+        if (LOBYTE(data.wVersion) != 2 || HIBYTE(data.wVersion) != 2) {
             cout << "Could not find a usable version of Winsock.dll." << endl;
             WSACleanup();
             return -1;
-        } else {
-            cout << "The Winsock 2.2 dll was found successfully." << endl;
         }
     }
     cout << "Loading...OK" << endl;
 
     // Create socket based on TCP
     cout << "Creating..." << endl;
-    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (s == INVALID_SOCKET) {
+    SOCKET socketThisServer = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (socketThisServer == INVALID_SOCKET) {
         cout << "Error occurred in creating socket." << endl;
         WSACleanup();
         return -1;
@@ -37,11 +32,11 @@ int main() {
 
     // Bind the socket
     cout << "Binding..." << endl;
-    sockaddr_in sin;
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(5555);
-    sin.sin_addr.S_un.S_addr = INADDR_ANY;
-    if (bind(s, (LPSOCKADDR) &sin, sizeof(sin)) == SOCKET_ERROR) {
+    sockaddr_in addressThisServer{};
+    addressThisServer.sin_family = AF_INET;
+    addressThisServer.sin_port = htons(SERVER_PORT);
+    addressThisServer.sin_addr.S_un.S_addr = INADDR_ANY;
+    if (bind(socketThisServer, (LPSOCKADDR) &addressThisServer, sizeof(addressThisServer)) == SOCKET_ERROR) {
         cout << "Error occurred in binding socket." << endl;
         WSACleanup();
         return -1;
@@ -50,7 +45,7 @@ int main() {
 
     // Listening
     cout << "Listening..." << endl;
-    if (listen(s, 2) == SOCKET_ERROR) {
+    if (listen(socketThisServer, 2) == SOCKET_ERROR) {
         cout << "Error occurred in listening." << endl;
         WSACleanup();
         return -1;
@@ -58,31 +53,35 @@ int main() {
     cout << "Listening...OK" << endl;
 
     // Preparing for the connection
-    sockaddr_in remoteAddress;
-    int nAddressLength = sizeof(remoteAddress);
-    SOCKET client;
-    char szText[] = "Yunzhe\n";
+    sockaddr_in clientAddress{};
+    int clientAddressLength = sizeof(clientAddress);
+    SOCKET socketClient;
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
-    while (true)
-    {
-        client = accept(s, (SOCKADDR *) &remoteAddress, &nAddressLength);
-        if (client == INVALID_SOCKET) {
+    socketClient = accept(socketThisServer, (SOCKADDR *) &clientAddress, &clientAddressLength);
+    while (true) {
+        if (socketClient == INVALID_SOCKET) {
             cout << "Invalid socket." << endl;
             continue;
         }
+        cout << "New connection: " << inet_ntoa(clientAddress.sin_addr) << endl;
 
-        cout << "New connection: " << inet_ntoa(remoteAddress.sin_addr) << endl;
+        char request[256];
+        int requestLength = recv(socketClient, request, 256, 0);
+        if (requestLength > 0) {
+            request[requestLength] = '\0';
+            cout << "Data received: " << request << endl;
+        }
 
-        send(client, szText, strlen(szText), 0);
+        SYSTEMTIME start{};
+        GetLocalTime(&start);
+        string time = to_string(start.wHour) + ":" + to_string(start.wMinute) + ":" + to_string(start.wSecond) + " "
+                      + to_string(start.wDay) + " " + to_string(start.wMonth) + " " + to_string(start.wYear);
+        string response = "200\r\nNumber: 1\r\nIP: " + string(inet_ntoa(clientAddress.sin_addr)) +"\r\nPort: " + to_string(clientAddress.sin_port) + "\r\nTime: " + time + "\r\nServer: SocketLion\r\n\r\nYunzhe";
+        send(socketClient, response.data(), response.length(), 0);
 
-        closesocket(client);
+//        closesocket(socketClient);
     }
 #pragma clang diagnostic pop
-
-    cout << "Bye." << endl;
-    closesocket(s);
-    WSACleanup();
-    return 0;
 }
