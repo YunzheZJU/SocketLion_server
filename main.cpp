@@ -1,9 +1,8 @@
 #include "main.h"
 
 vector<ClientInfo> clientInfo;
-//vector<SOCKET> clients;
 vector<thread> threads;
-list<int> available;
+list<int> availableSlots;
 atomic_int count = {0};
 int total = 0;
 
@@ -66,7 +65,7 @@ int main() {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
     while (true) {
-        ClientInfo newInfo;
+        ClientInfo newInfo{};
 //        SOCKET socketClient;
         newInfo.socket = accept(socketThisServer, (SOCKADDR *) &newInfo.clientAddress, &clientAddressLength);
         if (newInfo.socket == INVALID_SOCKET) {
@@ -75,21 +74,24 @@ int main() {
         }
         clog << "New connection: " << inet_ntoa(newInfo.clientAddress.sin_addr) << endl;
         newInfo.order = total;
+        if (!availableSlots.empty()) {
+            int slot = availableSlots.front();
+            availableSlots.pop_front();
+            clientInfo[slot] = newInfo;
+            threads.emplace(threads.begin() + slot, communicate, slot);
+        } else {
+            clientInfo.push_back(newInfo);
+            threads.emplace_back(communicate, total);
+        }
         count++;
         total++;
         cout << "Number of threads: " << count << endl;
-//        clients.push_back(socketClient);
-//        newInfo.socket = socketClient;
-//        newInfo.clientAddress = clientAddress;
-        clientInfo.push_back(newInfo);
-//        threads.emplace_back(communicate, socketClient, clientAddress);
-        threads.emplace_back(communicate, total - 1);
-
+        cout << "Length of clientInfo: " << clientInfo.size() << endl;
+        cout << "Length of availableSlots: " << availableSlots.size() << endl;
     }
 #pragma clang diagnostic pop
 }
 
-//void communicate(const SOCKET &client, const sockaddr_in &clientAddress) {
 void communicate(int slot) {
     while (true) {
         char request[256];
@@ -102,7 +104,7 @@ void communicate(int slot) {
             GetLocalTime(&start);
             string time = to_string(start.wHour) + ":" + to_string(start.wMinute) + ":" + to_string(start.wSecond) + " "
                           + to_string(start.wDay) + " " + to_string(start.wMonth) + " " + to_string(start.wYear);
-            string response = "200\r\nNumber: " + to_string(slot) + "\r\nIP: " + string(inet_ntoa(clientInfo[slot].clientAddress.sin_addr)) + "\r\nPort: " +
+            string response = "200\r\nNumber: " + to_string(clientInfo[slot].order) + "\r\nIP: " + string(inet_ntoa(clientInfo[slot].clientAddress.sin_addr)) + "\r\nPort: " +
                               to_string(clientInfo[slot].clientAddress.sin_port) + "\r\nTime: " + time +
                               "\r\nServer: SocketLion\r\n\r\nYunzhe";
             send(clientInfo[slot].socket, response.data(), response.length(), 0);
@@ -114,7 +116,10 @@ void communicate(int slot) {
             }
             closesocket(clientInfo[slot].socket);
             count--;
+            availableSlots.push_back(slot);
             cout << "Number of threads: " << count << endl;
+            cout << "Length of clientInfo: " << clientInfo.size() << endl;
+            cout << "Length of availableSlots: " << availableSlots.size() << endl;
             break;
         }
     }
