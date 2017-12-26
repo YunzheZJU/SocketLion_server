@@ -11,6 +11,7 @@
 #include <atomic>
 #include <vector>
 #include <list>
+#include <mutex>
 
 using namespace std;
 
@@ -23,5 +24,7 @@ struct ClientInfo {
 };
 
 void communicate(int slot);
+
+const string AlignTime(const string &num);
 
 #endif //SOCKETLION_SERVER_MAIN_H
