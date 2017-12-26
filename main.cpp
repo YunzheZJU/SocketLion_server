@@ -1,5 +1,8 @@
 #include "main.h"
 
+vector<SOCKET> clients;
+vector<thread> threads;
+
 int main() {
     cout << "Server Start." << endl;
     WORD version = MAKEWORD(2, 2);

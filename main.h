@@ -7,6 +7,8 @@
 
 #include <Winsock2.h>
 #include <iostream>
+#include <thread>
+#include <vector>
 
 using namespace std;
 
