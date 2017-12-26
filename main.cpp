@@ -1,7 +1,11 @@
 #include "main.h"
 
-vector<SOCKET> clients;
+vector<ClientInfo> clientInfo;
+//vector<SOCKET> clients;
 vector<thread> threads;
+list<int> available;
+atomic_int count = {0};
+int total = 0;
 
 int main() {
     cout << "Server Start." << endl;
@@ -58,42 +62,60 @@ int main() {
     // Preparing for the connection
     sockaddr_in clientAddress{};
     int clientAddressLength = sizeof(clientAddress);
-    SOCKET socketClient;
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
     while (true) {
-        socketClient = accept(socketThisServer, (SOCKADDR *) &clientAddress, &clientAddressLength);
-        if (socketClient == INVALID_SOCKET) {
+        ClientInfo newInfo;
+//        SOCKET socketClient;
+        newInfo.socket = accept(socketThisServer, (SOCKADDR *) &newInfo.clientAddress, &clientAddressLength);
+        if (newInfo.socket == INVALID_SOCKET) {
             cerr << "Invalid socket." << endl;
             continue;
         }
-        clog << "New connection: " << inet_ntoa(clientAddress.sin_addr) << endl;
+        clog << "New connection: " << inet_ntoa(newInfo.clientAddress.sin_addr) << endl;
+        newInfo.order = total;
+        count++;
+        total++;
+        cout << "Number of threads: " << count << endl;
+//        clients.push_back(socketClient);
+//        newInfo.socket = socketClient;
+//        newInfo.clientAddress = clientAddress;
+        clientInfo.push_back(newInfo);
+//        threads.emplace_back(communicate, socketClient, clientAddress);
+        threads.emplace_back(communicate, total - 1);
 
-        while (true) {
-            char request[256];
-            int requestLength = recv(socketClient, request, 256, 0);
-            if (requestLength > 0) {
-                request[requestLength] = '\0';
-                clog << "Data received: " << request << endl;
-
-                SYSTEMTIME start{};
-                GetLocalTime(&start);
-                string time = to_string(start.wHour) + ":" + to_string(start.wMinute) + ":" + to_string(start.wSecond) + " "
-                              + to_string(start.wDay) + " " + to_string(start.wMonth) + " " + to_string(start.wYear);
-                string response = "200\r\nNumber: 1\r\nIP: " + string(inet_ntoa(clientAddress.sin_addr)) +"\r\nPort: " + to_string(clientAddress.sin_port) + "\r\nTime: " + time + "\r\nServer: SocketLion\r\n\r\nYunzhe";
-                send(socketClient, response.data(), response.length(), 0);
-            } else {
-                if (requestLength == 0) {
-                    clog << "Connection is closed." << endl;
-                }
-                else {
-                    cerr << "Error occurred in receiving: " << WSAGetLastError() << "." << endl;
-                }
-                closesocket(socketClient);
-                break;
-            }
-        }
     }
 #pragma clang diagnostic pop
+}
+
+//void communicate(const SOCKET &client, const sockaddr_in &clientAddress) {
+void communicate(int slot) {
+    while (true) {
+        char request[256];
+        int requestLength = recv(clientInfo[slot].socket, request, 256, 0);
+        if (requestLength > 0) {
+            request[requestLength] = '\0';
+            clog << "Data received: " << request << endl;
+
+            SYSTEMTIME start{};
+            GetLocalTime(&start);
+            string time = to_string(start.wHour) + ":" + to_string(start.wMinute) + ":" + to_string(start.wSecond) + " "
+                          + to_string(start.wDay) + " " + to_string(start.wMonth) + " " + to_string(start.wYear);
+            string response = "200\r\nNumber: " + to_string(slot) + "\r\nIP: " + string(inet_ntoa(clientInfo[slot].clientAddress.sin_addr)) + "\r\nPort: " +
+                              to_string(clientInfo[slot].clientAddress.sin_port) + "\r\nTime: " + time +
+                              "\r\nServer: SocketLion\r\n\r\nYunzhe";
+            send(clientInfo[slot].socket, response.data(), response.length(), 0);
+        } else {
+            if (requestLength == 0) {
+                clog << "Connection is closed." << endl;
+            } else {
+                cerr << "Error occurred in receiving: " << WSAGetLastError() << "." << endl;
+            }
+            closesocket(clientInfo[slot].socket);
+            count--;
+            cout << "Number of threads: " << count << endl;
+            break;
+        }
+    }
 }
