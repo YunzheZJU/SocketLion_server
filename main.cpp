@@ -2,11 +2,9 @@
 
 vector<ClientInfo> clientInfo;
 set<int> availableSlots;
-//list<Message> messageQueue;
 atomic_int count = {0};
 mutex mutexAvailableSlots;
 mutex mutexClientInfo;
-//mutex mutexMessageQueue;
 int total = 0;
 bool stopServer = false;
 
@@ -73,22 +71,9 @@ int main() {
     sockaddr_in clientAddress{};
     int clientAddressLength = sizeof(clientAddress);
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-noreturn"
     thread threadInterrupt(interrupt);
     cout << "Waiting for connections..." << endl;
-    while (true) {
-        if (stopServer) {
-            // Clear all threads
-            vector<thread>::iterator it;
-            for (it = threads.begin(); it != threads.end(); it++) {
-                if ((*it).joinable()) {
-                    (*it).join();
-                }
-            }
-            clog << "All threads are joined." << endl;
-            exit(0);
-        }
+    while (!stopServer) {
         ClientInfo newInfo{};
         newInfo.socket = accept(socketThisServer, (SOCKADDR *) &clientAddress, &clientAddressLength);
         if (newInfo.socket == INVALID_SOCKET) {
@@ -124,7 +109,16 @@ int main() {
         cout << "Length of clientInfo: " << clientInfo.size() << endl;
         cout << "Number of availableSlots: " << availableSlots.size() << endl;
     }
-#pragma clang diagnostic pop
+    // Clear all threads
+    vector<thread>::iterator it;
+    for (it = threads.begin(); it != threads.end(); it++) {
+        if ((*it).joinable()) {
+            (*it).join();
+        }
+    }
+    clog << "All threads are joined." << endl;
+    cout << "Bye." << endl;
+    exit(0);
 }
 
 void interrupt() {
@@ -134,21 +128,14 @@ void interrupt() {
 
 void communicate(int slot) {
     cout << "Thread " << slot << " starts." << endl;
-    while (true) {
+    while (!stopServer) {
         char request[256];
         int requestLength = recv(clientInfo[slot].socket, request, 256, 0);
         if (requestLength > 0) {
             request[requestLength] = '\0';
             clog << "Data received: " << request << endl;
 
-            SYSTEMTIME start{};
-            GetLocalTime(&start);
-            string time = to_string(start.wYear) + "/"
-                          + to_string(start.wMonth) + "/"
-                          + to_string(start.wDay) + " "
-                          + to_string(start.wHour) + ":"
-                          + AlignTime(to_string(start.wMinute)) + ":"
-                          + AlignTime(to_string(start.wSecond));
+            string time = GetTime();
             string statusCode;
             string content;
             GenerateContent(request, statusCode, content, slot);
@@ -173,14 +160,6 @@ void communicate(int slot) {
             cout << "Number of availableSlots: " << availableSlots.size() << endl;
             break;
         } else {
-            if (stopServer) {
-                break;
-            }
-//            mutexMessageQueue.lock();
-//            Message message = messageQueue.front();
-//            messageQueue.pop_front();
-//            mutexMessageQueue.unlock();
-//            CheckMessage(message, slot);
             Sleep(100);
         }
     }
@@ -197,15 +176,20 @@ const string AlignTime(const string &num) {
 
 void GenerateContent(const string &request, string &statusCode, string &content, int slot) {
     string command = request.substr(0, request.find('\r'));
+    content.append("Method: " + command + "\n");
     if (command == "ALOHA") {
-        content = "Yunzhe";
+        content.append("Yunzhe");
+        statusCode = "200";
+    } else if (command == "TIME") {
+        content.append(GetTime());
+        statusCode = "200";
+    } else if (command == "SERV") {
+        content.append("SocketLion");
         statusCode = "200";
     } else if (command == "LIST") {
         // List
         content.append("List of users online: \n");
         auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
-//        cout << "Count: " << count << endl;
-//        cout << "sizeOfClientInfo" << sizeOfClientInfo << endl;
         for (int i = 0; i < sizeOfClientInfo; i++) {
             if (availableSlots.find(i) == availableSlots.end()) {
                 mutexClientInfo.lock();
@@ -222,24 +206,24 @@ void GenerateContent(const string &request, string &statusCode, string &content,
         statusCode = "200";
     } else if (command == "SEND") {
         // SEND message at once!
-        string headerToNumber = "ToNumber";
-        string headerToAddress = "ToAddress";
+        string keywordToNumber = "ToNumber";
+        string keywordToAddress = "ToAddress";
         string separator = "\r\n\r\n";
         int toNumber;
-        string2int(toNumber, GetHeader(request, headerToNumber));
-        string toAddress = GetHeader(request, headerToAddress);
+        string2int(toNumber, GetValue(request, keywordToNumber));
+        string toAddress = GetValue(request, keywordToAddress);
         string requestContent = request.substr(request.find(separator) + separator.length());
         string fromNumber = to_string(clientInfo[slot].number);
         auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
         for (int i = 0; i < sizeOfClientInfo; i++) {
             if (availableSlots.find(i) == availableSlots.end()) {
-                if (clientInfo[slot].number == toNumber && clientInfo[slot].address == toAddress) {
+                if (clientInfo[i].number == toNumber && clientInfo[i].address == toAddress) {
                     // Send the message
                     string messageRequest = "SEND\r\n";
                     messageRequest.append("FromNumber: " + fromNumber + "\r\n\r\n");
                     messageRequest.append(requestContent);
                     // Implicit conversion from const char* to string
-                    content = Request(clientInfo[slot].socket, messageRequest.data());
+                    content.append(Request(clientInfo[i].socket, messageRequest.data()));
                     statusCode = "200";
                     break;
                 }
@@ -248,36 +232,16 @@ void GenerateContent(const string &request, string &statusCode, string &content,
                 statusCode = "404";
             }
         }
-//        Message message = {toNumber, toAddress, fromNumber, 0, requestContent};
-//        mutexMessageQueue.lock();
-//        messageQueue.emplace_back(message);
-//        mutexMessageQueue.unlock();
     } else {
         statusCode = "400";
     }
 }
 
-string GetHeader(const string &request, const string &header) {
-    string stringToFind = header + ": ";
+string GetValue(const string &request, const string &keyword) {
+    string stringToFind = keyword + ": ";
     string temp = request.substr(request.find(stringToFind) + stringToFind.length());
     return temp.substr(0, temp.find('\r'));
 }
-
-//void CheckMessage(Message &message, int slot) {
-//    if (message.toNumber == clientInfo[slot].number) {
-//        if (message.toAddress == clientInfo[slot].address) {
-//            string messageContent = message.message;
-//            clog << "A message from user [" << message.fromNumber << "] is sending to user [" << clientInfo[slot].number
-//                 << "]...";
-//            send(clientInfo[slot].socket, messageContent.data(), static_cast<int>(messageContent.length()), 0);
-//            clog << "OK" << endl;
-//        } else {
-//            // The target user has gone
-//            clog << "A message from user [" << message.fromNumber << "] is dropped." << endl;
-//            messageQueue.pop_front();
-//        }
-//    }
-//}
 
 const char* Request(SOCKET socketClient, const char request[]) {
     clog << "Sending..." << endl;
@@ -286,15 +250,22 @@ const char* Request(SOCKET socketClient, const char request[]) {
 
     char response[256];
     int retryCount = 0;
-    while (true) {
-        if (retryCount == 10) {
-            break;
-        }
+    while (retryCount != 10) {
         clog << "Receiving..." << endl;
         int responseLength = recv(socketClient, response, 256, 0);
         if (responseLength > 0) {
-            clog << "Receiving...OK" << endl;
-            return "200";
+            // FIXME: 没有信件列表，多人同时向同一人发信，会出问题
+            // FIXME: 用户的请求会被过滤
+            // FIXME: 客户端的回复没有进入到这里
+            string stringResponse = response;
+            string statusCode = stringResponse.substr(0, stringResponse.find('\r'));
+            if (statusCode == "200") {
+                clog << "Receiving...OK" << endl;
+                return "200";
+            } else {
+                retryCount++;
+                clog << "It is not a reply from the client. Retry: " << retryCount << endl;
+            }
         } else if (responseLength == 0) {
             clog << "Target client has closed the connection." << endl;
             return "502";
@@ -306,6 +277,17 @@ const char* Request(SOCKET socketClient, const char request[]) {
     }
     clog << "Receiving...failed." << endl;
     return "500";
+}
+
+string GetTime() {
+    SYSTEMTIME start{};
+    GetLocalTime(&start);
+    return to_string(start.wYear) + "/"
+                  + to_string(start.wMonth) + "/"
+                  + to_string(start.wDay) + " "
+                  + to_string(start.wHour) + ":"
+                  + AlignTime(to_string(start.wMinute)) + ":"
+                  + AlignTime(to_string(start.wSecond));
 }
 
 void string2int(int &int_temp, const string &string_temp) {

@@ -22,18 +22,9 @@ using namespace std;
 
 struct ClientInfo {
     SOCKET socket;
-    sockaddr_in clientAddress;
     string address;
     string port;
     int number;
-};
-
-struct Message {
-    int toNumber;
-    string toAddress;
-    int fromNumber;
-    int signal;
-    string message;
 };
 
 void interrupt();
@@ -44,11 +35,11 @@ const string AlignTime(const string &num);
 
 void GenerateContent(const string &request, string &statusCode, string &content, int slot);
 
-string GetHeader(const string &request, const string &header);
-
-//void CheckMessage(Message &message,int slot);
+string GetValue(const string &request, const string &keyword);
 
 const char* Request(SOCKET socketClient, const char request[]);
+
+string GetTime();
 
 void string2int(int &int_temp, const string &string_temp);
 
