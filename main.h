@@ -46,7 +46,9 @@ void GenerateContent(const string &request, string &statusCode, string &content,
 
 string GetHeader(const string &request, const string &header);
 
-void CheckMessage(Message &message,int slot);
+//void CheckMessage(Message &message,int slot);
+
+const char* Request(SOCKET socketClient, const char request[], char response[]);
 
 void string2int(int &int_temp, const string &string_temp);
 

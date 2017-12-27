@@ -2,11 +2,11 @@
 
 vector<ClientInfo> clientInfo;
 set<int> availableSlots;
-list<Message> messageQueue;
+//list<Message> messageQueue;
 atomic_int count = {0};
 mutex mutexAvailableSlots;
 mutex mutexClientInfo;
-mutex mutexMessageQueue;
+//mutex mutexMessageQueue;
 int total = 0;
 bool stopServer = false;
 
@@ -80,9 +80,10 @@ int main() {
     while (true) {
         if (stopServer) {
             // Clear all threads
-            for (auto it : threads) {
-                if (it.joinable()) {
-                    it.join();
+            vector<thread>::iterator it;
+            for (it = threads.begin(); it != threads.end(); it++) {
+                if ((*it).joinable()) {
+                    (*it).join();
                 }
             }
             clog << "All threads are joined." << endl;
@@ -159,6 +160,7 @@ void communicate(int slot) {
             response.append("Server: SocketLion\r\n\r\n");
             response.append(content);
             send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
+            clog << "Response: " << response << endl;
         } else if (requestLength == 0) {
             clog << "Connection is closed." << endl;
             closesocket(clientInfo[slot].socket);
@@ -171,11 +173,14 @@ void communicate(int slot) {
             cout << "Number of availableSlots: " << availableSlots.size() << endl;
             break;
         } else {
-            mutexMessageQueue.lock();
-            Message message = messageQueue.front();
-            messageQueue.pop_front();
-            mutexMessageQueue.unlock();
-            CheckMessage(message, slot);
+            if (stopServer) {
+                break;
+            }
+//            mutexMessageQueue.lock();
+//            Message message = messageQueue.front();
+//            messageQueue.pop_front();
+//            mutexMessageQueue.unlock();
+//            CheckMessage(message, slot);
             Sleep(100);
         }
     }
@@ -223,13 +228,30 @@ void GenerateContent(const string &request, string &statusCode, string &content,
         int toNumber;
         string2int(toNumber, GetHeader(request, headerToNumber));
         string toAddress = GetHeader(request, headerToAddress);
-        string requestContent = request.substr(request.find(separator), separator.length());
-        int fromNumber = clientInfo[slot].number;
-        Message message = {toNumber, toAddress, fromNumber, 0, requestContent};
-        mutexMessageQueue.lock();
-        messageQueue.emplace_back(message);
-        mutexMessageQueue.unlock();
-        statusCode = "200";
+        string requestContent = request.substr(request.find(separator) + separator.length());
+        string fromNumber = to_string(clientInfo[slot].number);
+        auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
+        for (int i = 0; i < sizeOfClientInfo; i++) {
+            if (availableSlots.find(i) == availableSlots.end()) {
+                if (clientInfo[slot].number == toNumber && clientInfo[slot].address == toAddress) {
+                    // Send the message
+                    string messageRequest = "SEND\r\n";
+                    messageRequest.append("FromNumber: " + fromNumber + "\r\n\r\n");
+                    messageRequest.append(requestContent);
+                    // Implicit conversion from const char* to string
+                    content = Request(clientInfo[slot].socket, messageRequest.data());
+                    statusCode = "200";
+                    break;
+                }
+            }
+            if (i == sizeOfClientInfo - 1) {
+                statusCode = "404";
+            }
+        }
+//        Message message = {toNumber, toAddress, fromNumber, 0, requestContent};
+//        mutexMessageQueue.lock();
+//        messageQueue.emplace_back(message);
+//        mutexMessageQueue.unlock();
     } else {
         statusCode = "400";
     }
@@ -241,19 +263,49 @@ string GetHeader(const string &request, const string &header) {
     return temp.substr(0, temp.find('\r'));
 }
 
-void CheckMessage(Message &message, int slot) {
-    if (message.toNumber == clientInfo[slot].number) {
-        if (message.toAddress == clientInfo[slot].address) {
-            string messageContent = message.message;
-            clog << "A message from user [" << message.fromNumber << "] is sending to user [" << clientInfo[slot].number << "]...";
-            send(clientInfo[slot].socket, messageContent.data(), static_cast<int>(messageContent.length()), 0);
-            clog << "OK" << endl;
+//void CheckMessage(Message &message, int slot) {
+//    if (message.toNumber == clientInfo[slot].number) {
+//        if (message.toAddress == clientInfo[slot].address) {
+//            string messageContent = message.message;
+//            clog << "A message from user [" << message.fromNumber << "] is sending to user [" << clientInfo[slot].number
+//                 << "]...";
+//            send(clientInfo[slot].socket, messageContent.data(), static_cast<int>(messageContent.length()), 0);
+//            clog << "OK" << endl;
+//        } else {
+//            // The target user has gone
+//            clog << "A message from user [" << message.fromNumber << "] is dropped." << endl;
+//            messageQueue.pop_front();
+//        }
+//    }
+//}
+
+const char* Request(SOCKET socketClient, const char request[]) {
+    clog << "Sending..." << endl;
+    send(socketClient, request, static_cast<int>(strlen(request)), 0);
+    clog << "Sending...OK" << endl;
+
+    char response[256];
+    int retryCount = 0;
+    while (true) {
+        if (retryCount == 10) {
+            break;
+        }
+        clog << "Receiving..." << endl;
+        int responseLength = recv(socketClient, response, 256, 0);
+        if (responseLength > 0) {
+            clog << "Receiving...OK" << endl;
+            return "200";
+        } else if (responseLength == 0) {
+            clog << "Target client has closed the connection." << endl;
+            return "502";
         } else {
-            // The target user has gone
-            clog << "A message from user [" << message.fromNumber << "] is dropped." << endl;
-            messageQueue.pop_front();
+            retryCount++;
+            clog << "There is no reply from the client. Retry: " << retryCount << endl;
+            Sleep(200);
         }
     }
+    clog << "Receiving...failed." << endl;
+    return "500";
 }
 
 void string2int(int &int_temp, const string &string_temp) {
