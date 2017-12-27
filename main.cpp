@@ -2,9 +2,10 @@
 
 vector<ClientInfo> clientInfo;
 vector<thread> threads;
-list<int> availableSlots;
+set<int> availableSlots;
 atomic_int count = {0};
-mutex g_mtx;
+mutex mutexAvailableSlots;
+mutex mutexClientInfo;
 int total = 0;
 
 int main() {
@@ -65,6 +66,7 @@ int main() {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
+    cout << "Waiting for connections..." << endl;
     while (true) {
         ClientInfo newInfo{};
 //        SOCKET socketClient;
@@ -75,17 +77,20 @@ int main() {
         }
         clog << "New connection: " << inet_ntoa(newInfo.clientAddress.sin_addr) << endl;
         newInfo.order = total;
-        g_mtx.lock();
+        mutexAvailableSlots.lock();
+        mutexClientInfo.lock();
         if (!availableSlots.empty()) {
-            int slot = availableSlots.front();
-            availableSlots.pop_front();
+            auto it = availableSlots.begin();
+            int slot = *it;
+            availableSlots.erase(it);
             clientInfo[slot] = newInfo;
             threads.emplace(threads.begin() + slot, communicate, slot);
         } else {
             clientInfo.push_back(newInfo);
             threads.emplace_back(communicate, total);
         }
-        g_mtx.unlock();
+        mutexAvailableSlots.unlock();
+        mutexClientInfo.unlock();
         count++;
         total++;
         cout << "Number of threads: " << count << endl;
@@ -111,10 +116,17 @@ void communicate(int slot) {
                           + to_string(start.wHour) + ":"
                           + AlignTime(to_string(start.wMinute)) + ":"
                           + AlignTime(to_string(start.wSecond));
-            string response = "200\r\nNumber: " + to_string(clientInfo[slot].order) + "\r\nIP: " + string(inet_ntoa(clientInfo[slot].clientAddress.sin_addr)) + "\r\nPort: " +
-                              to_string(clientInfo[slot].clientAddress.sin_port) + "\r\nTime: " + time +
-                              "\r\nServer: SocketLion\r\n\r\nYunzhe";
-            send(clientInfo[slot].socket, response.data(), response.length(), 0);
+            string statusCode;
+            string content;
+            GenerateContent(request, statusCode, content);
+            string response = statusCode + "\r\n";
+            response.append("Number: " + to_string(clientInfo[slot].order) + "\r\n");
+            response.append("IP: " + string(inet_ntoa(clientInfo[slot].clientAddress.sin_addr)) + "\r\n");
+            response.append("Port: " + to_string(clientInfo[slot].clientAddress.sin_port) + "\r\n");
+            response.append("Time: " + time + "\r\n");
+            response.append("Server: SocketLion\r\n\r\n");
+            response.append(content);
+            send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
         } else {
             if (requestLength == 0) {
                 clog << "Connection is closed." << endl;
@@ -123,9 +135,9 @@ void communicate(int slot) {
             }
             closesocket(clientInfo[slot].socket);
             count--;
-            g_mtx.lock();
-            availableSlots.push_back(slot);
-            g_mtx.unlock();
+            mutexAvailableSlots.lock();
+            availableSlots.insert(slot);
+            mutexAvailableSlots.unlock();
             cout << "Number of threads: " << count << endl;
             cout << "Length of clientInfo: " << clientInfo.size() << endl;
             cout << "Length of availableSlots: " << availableSlots.size() << endl;
@@ -140,5 +152,36 @@ const string AlignTime(const string &num) {
     }
     else {
         return num;
+    }
+}
+
+void GenerateContent(const string &request, string &statusCode, string &content) {
+    string command = request.substr(0, request.find('\r'));
+    if (command == "ALOHA") {
+        content = "Yunzhe";
+        statusCode = "200";
+    } else if (command == "LIST") {
+        // List
+        auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
+        cout << "Count: " << count << endl;
+        cout << "sizeOfClientInfo" << sizeOfClientInfo << endl;
+        for (int slot = 0; slot < sizeOfClientInfo; slot++) {
+            if (availableSlots.find(slot) == availableSlots.end()) {
+                mutexClientInfo.lock();
+                ClientInfo user = clientInfo[slot];
+                mutexClientInfo.unlock();
+                string userNumber = to_string(user.order);
+                string userIP = string(inet_ntoa(user.clientAddress.sin_addr));
+                string userPort = to_string(user.clientAddress.sin_port);
+                content.append(userNumber + "\t");
+                content.append(userIP + "\t");
+                content.append(userPort + "\n");
+            }
+        }
+        statusCode = "200";
+    } else if (command == "SEND") {
+        // SEND
+    } else {
+        statusCode = "400";
     }
 }

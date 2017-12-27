@@ -10,7 +10,7 @@
 #include <iostream>
 #include <atomic>
 #include <vector>
-#include <list>
+#include <set>
 #include <mutex>
 
 using namespace std;
@@ -26,5 +26,7 @@ struct ClientInfo {
 void communicate(int slot);
 
 const string AlignTime(const string &num);
+
+void GenerateContent(const string &request, string &statusCode, string &content);
 
 #endif //SOCKETLION_SERVER_MAIN_H
