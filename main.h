@@ -48,7 +48,7 @@ string GetHeader(const string &request, const string &header);
 
 //void CheckMessage(Message &message,int slot);
 
-const char* Request(SOCKET socketClient, const char request[], char response[]);
+const char* Request(SOCKET socketClient, const char request[]);
 
 void string2int(int &int_temp, const string &string_temp);
 
