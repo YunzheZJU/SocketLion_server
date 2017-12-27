@@ -6,6 +6,7 @@ list<Message> messageQueue;
 atomic_int count = {0};
 mutex mutexAvailableSlots;
 mutex mutexClientInfo;
+mutex mutexMessageQueue;
 int total = 0;
 bool stopServer = false;
 
@@ -78,7 +79,13 @@ int main() {
     cout << "Waiting for connections..." << endl;
     while (true) {
         if (stopServer) {
-            // TODO: 清除所有线程
+            // Clear all threads
+            for (auto it : threads) {
+                if (it.joinable()) {
+                    it.join();
+                }
+            }
+            clog << "All threads are joined." << endl;
             exit(0);
         }
         ClientInfo newInfo{};
@@ -143,7 +150,7 @@ void communicate(int slot) {
                           + AlignTime(to_string(start.wSecond));
             string statusCode;
             string content;
-            GenerateContent(request, statusCode, content);
+            GenerateContent(request, statusCode, content, slot);
             string response = statusCode + "\r\n";
             response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
             response.append("Address: " + clientInfo[slot].address + "\r\n");
@@ -162,13 +169,17 @@ void communicate(int slot) {
             cout << "Number of threads(clients): " << count << endl;
             cout << "Length of clientInfo: " << clientInfo.size() << endl;
             cout << "Number of availableSlots: " << availableSlots.size() << endl;
-            // TODO: 移除线程
             break;
         } else {
+            mutexMessageQueue.lock();
+            Message message = messageQueue.front();
+            messageQueue.pop_front();
+            mutexMessageQueue.unlock();
+            CheckMessage(message, slot);
             Sleep(100);
         }
     }
-    cout << "Thread " << slot << " exits." << endl;
+    clog << "Thread " << slot << " exits." << endl;
 }
 
 const string AlignTime(const string &num) {
@@ -179,20 +190,21 @@ const string AlignTime(const string &num) {
     }
 }
 
-void GenerateContent(const string &request, string &statusCode, string &content) {
+void GenerateContent(const string &request, string &statusCode, string &content, int slot) {
     string command = request.substr(0, request.find('\r'));
     if (command == "ALOHA") {
         content = "Yunzhe";
         statusCode = "200";
     } else if (command == "LIST") {
         // List
+        content.append("List of users online: \n");
         auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
-        cout << "Count: " << count << endl;
-        cout << "sizeOfClientInfo" << sizeOfClientInfo << endl;
-        for (int slot = 0; slot < sizeOfClientInfo; slot++) {
-            if (availableSlots.find(slot) == availableSlots.end()) {
+//        cout << "Count: " << count << endl;
+//        cout << "sizeOfClientInfo" << sizeOfClientInfo << endl;
+        for (int i = 0; i < sizeOfClientInfo; i++) {
+            if (availableSlots.find(i) == availableSlots.end()) {
                 mutexClientInfo.lock();
-                ClientInfo user = clientInfo[slot];
+                ClientInfo user = clientInfo[i];
                 mutexClientInfo.unlock();
                 string userNumber = to_string(user.number);
                 string userAddress = user.address;
@@ -204,8 +216,47 @@ void GenerateContent(const string &request, string &statusCode, string &content)
         }
         statusCode = "200";
     } else if (command == "SEND") {
-        // SEND
+        // SEND message at once!
+        string headerToNumber = "ToNumber";
+        string headerToAddress = "ToAddress";
+        string separator = "\r\n\r\n";
+        int toNumber;
+        string2int(toNumber, GetHeader(request, headerToNumber));
+        string toAddress = GetHeader(request, headerToAddress);
+        string requestContent = request.substr(request.find(separator), separator.length());
+        int fromNumber = clientInfo[slot].number;
+        Message message = {toNumber, toAddress, fromNumber, 0, requestContent};
+        mutexMessageQueue.lock();
+        messageQueue.emplace_back(message);
+        mutexMessageQueue.unlock();
+        statusCode = "200";
     } else {
         statusCode = "400";
     }
+}
+
+string GetHeader(const string &request, const string &header) {
+    string stringToFind = header + ": ";
+    string temp = request.substr(request.find(stringToFind) + stringToFind.length());
+    return temp.substr(0, temp.find('\r'));
+}
+
+void CheckMessage(Message &message, int slot) {
+    if (message.toNumber == clientInfo[slot].number) {
+        if (message.toAddress == clientInfo[slot].address) {
+            string messageContent = message.message;
+            clog << "A message from user [" << message.fromNumber << "] is sending to user [" << clientInfo[slot].number << "]...";
+            send(clientInfo[slot].socket, messageContent.data(), static_cast<int>(messageContent.length()), 0);
+            clog << "OK" << endl;
+        } else {
+            // The target user has gone
+            clog << "A message from user [" << message.fromNumber << "] is dropped." << endl;
+            messageQueue.pop_front();
+        }
+    }
+}
+
+void string2int(int &int_temp, const string &string_temp) {
+    stringstream stream(string_temp);
+    stream >> int_temp;
 }

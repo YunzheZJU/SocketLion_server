@@ -14,6 +14,7 @@
 #include <list>
 #include <mutex>
 #include <windows.h>
+#include <sstream>
 
 using namespace std;
 
@@ -29,7 +30,7 @@ struct ClientInfo {
 
 struct Message {
     int toNumber;
-    int toIP;
+    string toAddress;
     int fromNumber;
     int signal;
     string message;
@@ -41,6 +42,12 @@ void communicate(int slot);
 
 const string AlignTime(const string &num);
 
-void GenerateContent(const string &request, string &statusCode, string &content);
+void GenerateContent(const string &request, string &statusCode, string &content, int slot);
+
+string GetHeader(const string &request, const string &header);
+
+void CheckMessage(Message &message,int slot);
+
+void string2int(int &int_temp, const string &string_temp);
 
 #endif //SOCKETLION_SERVER_MAIN_H
