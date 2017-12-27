@@ -11,6 +11,7 @@
 #include <atomic>
 #include <vector>
 #include <set>
+#include <list>
 #include <mutex>
 #include <windows.h>
 
@@ -30,8 +31,8 @@ struct Message {
     int toNumber;
     int toIP;
     int fromNumber;
-    string message;
     int signal;
+    string message;
 };
 
 void interrupt();

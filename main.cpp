@@ -1,8 +1,8 @@
 #include "main.h"
 
 vector<ClientInfo> clientInfo;
-vector<thread> threads;
 set<int> availableSlots;
+list<Message> messageQueue;
 atomic_int count = {0};
 mutex mutexAvailableSlots;
 mutex mutexClientInfo;
@@ -10,6 +10,7 @@ int total = 0;
 bool stopServer = false;
 
 int main() {
+    vector<thread> threads;
     cout << "Server Start." << endl;
     WORD version = MAKEWORD(2, 2);
     WSADATA data{};
@@ -83,12 +84,12 @@ int main() {
         ClientInfo newInfo{};
         newInfo.socket = accept(socketThisServer, (SOCKADDR *) &clientAddress, &clientAddressLength);
         if (newInfo.socket == INVALID_SOCKET) {
-//            cerr << "Invalid socket." << endl;
+//            cerr << "No valid socket." << endl;
             Sleep(100);
             continue;
         }
         newInfo.address = inet_ntoa(clientAddress.sin_addr);
-        newInfo.port = clientAddress.sin_port;
+        newInfo.port = to_string(clientAddress.sin_port);
         newInfo.number = total;
         clog << "New connection: " << newInfo.address << endl;
         mutexAvailableSlots.lock();
@@ -98,6 +99,10 @@ int main() {
             int slot = *it;
             availableSlots.erase(it);
             clientInfo[slot] = newInfo;
+            // !important
+            if (threads[slot].joinable()) {
+                threads[slot].join();
+            }
             threads.emplace(threads.begin() + slot, communicate, slot);
         } else {
             clientInfo.push_back(newInfo);
@@ -120,6 +125,7 @@ void interrupt() {
 }
 
 void communicate(int slot) {
+    cout << "Thread " << slot << " starts." << endl;
     while (true) {
         char request[256];
         int requestLength = recv(clientInfo[slot].socket, request, 256, 0);
@@ -158,8 +164,11 @@ void communicate(int slot) {
             cout << "Number of availableSlots: " << availableSlots.size() << endl;
             // TODO: 移除线程
             break;
+        } else {
+            Sleep(100);
         }
     }
+    cout << "Thread " << slot << " exits." << endl;
 }
 
 const string AlignTime(const string &num) {
