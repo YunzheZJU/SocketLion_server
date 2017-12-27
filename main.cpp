@@ -40,7 +40,7 @@ int main() {
     clog << "Creating...OK" << endl;
 
     unsigned long ul = 1;
-    int ret = ioctlsocket(socketThisServer, FIONBIO, &ul);//设置成非阻塞模式。
+    int ret = ioctlsocket(socketThisServer, FIONBIO, &ul);  // 设置socketThisServer为非阻塞模式
     if (ret == SOCKET_ERROR) {
         cout << "Error." << endl;
     }
@@ -81,14 +81,16 @@ int main() {
             exit(0);
         }
         ClientInfo newInfo{};
-        newInfo.socket = accept(socketThisServer, (SOCKADDR *) &newInfo.clientAddress, &clientAddressLength);
+        newInfo.socket = accept(socketThisServer, (SOCKADDR *) &clientAddress, &clientAddressLength);
         if (newInfo.socket == INVALID_SOCKET) {
 //            cerr << "Invalid socket." << endl;
             Sleep(100);
             continue;
         }
-        clog << "New connection: " << inet_ntoa(newInfo.clientAddress.sin_addr) << endl;
-        newInfo.order = total;
+        newInfo.address = inet_ntoa(clientAddress.sin_addr);
+        newInfo.port = clientAddress.sin_port;
+        newInfo.number = total;
+        clog << "New connection: " << newInfo.address << endl;
         mutexAvailableSlots.lock();
         mutexClientInfo.lock();
         if (!availableSlots.empty()) {
@@ -137,30 +139,25 @@ void communicate(int slot) {
             string content;
             GenerateContent(request, statusCode, content);
             string response = statusCode + "\r\n";
-            response.append("Number: " + to_string(clientInfo[slot].order) + "\r\n");
-            response.append("IP: " + string(inet_ntoa(clientInfo[slot].clientAddress.sin_addr)) + "\r\n");
-            response.append("Port: " + to_string(clientInfo[slot].clientAddress.sin_port) + "\r\n");
+            response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
+            response.append("Address: " + clientInfo[slot].address + "\r\n");
+            response.append("Port: " + clientInfo[slot].port + "\r\n");
             response.append("Time: " + time + "\r\n");
             response.append("Server: SocketLion\r\n\r\n");
             response.append(content);
             send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
-        } else {
-//            printf("Fuck.");
-            if (requestLength == 0) {
-                clog << "Connection is closed." << endl;
-                closesocket(clientInfo[slot].socket);
-                count--;
-                mutexAvailableSlots.lock();
-                availableSlots.insert(slot);
-                mutexAvailableSlots.unlock();
-                cout << "Number of threads(clients): " << count << endl;
-                cout << "Length of clientInfo: " << clientInfo.size() << endl;
-                cout << "Number of availableSlots: " << availableSlots.size() << endl;
-                // TODO: 移除线程
-                break;
-            } else {
-//                cerr << "Error occurred in receiving: " << WSAGetLastError() << "." << endl;
-            }
+        } else if (requestLength == 0) {
+            clog << "Connection is closed." << endl;
+            closesocket(clientInfo[slot].socket);
+            count--;
+            mutexAvailableSlots.lock();
+            availableSlots.insert(slot);
+            mutexAvailableSlots.unlock();
+            cout << "Number of threads(clients): " << count << endl;
+            cout << "Length of clientInfo: " << clientInfo.size() << endl;
+            cout << "Number of availableSlots: " << availableSlots.size() << endl;
+            // TODO: 移除线程
+            break;
         }
     }
 }
@@ -188,11 +185,11 @@ void GenerateContent(const string &request, string &statusCode, string &content)
                 mutexClientInfo.lock();
                 ClientInfo user = clientInfo[slot];
                 mutexClientInfo.unlock();
-                string userNumber = to_string(user.order);
-                string userIP = string(inet_ntoa(user.clientAddress.sin_addr));
-                string userPort = to_string(user.clientAddress.sin_port);
+                string userNumber = to_string(user.number);
+                string userAddress = user.address;
+                string userPort = user.port;
                 content.append(userNumber + "\t");
-                content.append(userIP + "\t");
+                content.append(userAddress + "\t");
                 content.append(userPort + "\n");
             }
         }

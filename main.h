@@ -21,7 +21,17 @@ using namespace std;
 struct ClientInfo {
     SOCKET socket;
     sockaddr_in clientAddress;
-    int order;
+    string address;
+    string port;
+    int number;
+};
+
+struct Message {
+    int toNumber;
+    int toIP;
+    int fromNumber;
+    string message;
+    int signal;
 };
 
 void interrupt();
