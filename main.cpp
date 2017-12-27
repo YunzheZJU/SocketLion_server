@@ -7,6 +7,7 @@ atomic_int count = {0};
 mutex mutexAvailableSlots;
 mutex mutexClientInfo;
 int total = 0;
+bool stopServer = false;
 
 int main() {
     cout << "Server Start." << endl;
@@ -38,6 +39,12 @@ int main() {
     }
     clog << "Creating...OK" << endl;
 
+    unsigned long ul = 1;
+    int ret = ioctlsocket(socketThisServer, FIONBIO, &ul);//设置成非阻塞模式。
+    if (ret == SOCKET_ERROR) {
+        cout << "Error." << endl;
+    }
+
     // Bind the socket
     clog << "Binding..." << endl;
     sockaddr_in addressThisServer{};
@@ -66,13 +73,18 @@ int main() {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
+    thread threadInterrupt(interrupt);
     cout << "Waiting for connections..." << endl;
     while (true) {
+        if (stopServer) {
+            // TODO: 清除所有线程
+            exit(0);
+        }
         ClientInfo newInfo{};
-//        SOCKET socketClient;
         newInfo.socket = accept(socketThisServer, (SOCKADDR *) &newInfo.clientAddress, &clientAddressLength);
         if (newInfo.socket == INVALID_SOCKET) {
-            cerr << "Invalid socket." << endl;
+//            cerr << "Invalid socket." << endl;
+            Sleep(100);
             continue;
         }
         clog << "New connection: " << inet_ntoa(newInfo.clientAddress.sin_addr) << endl;
@@ -93,11 +105,16 @@ int main() {
         mutexClientInfo.unlock();
         count++;
         total++;
-        cout << "Number of threads: " << count << endl;
+        cout << "Number of threads(clients): " << count << endl;
         cout << "Length of clientInfo: " << clientInfo.size() << endl;
-        cout << "Length of availableSlots: " << availableSlots.size() << endl;
+        cout << "Number of availableSlots: " << availableSlots.size() << endl;
     }
 #pragma clang diagnostic pop
+}
+
+void interrupt() {
+    getchar();
+    stopServer = true;
 }
 
 void communicate(int slot) {
@@ -128,20 +145,22 @@ void communicate(int slot) {
             response.append(content);
             send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
         } else {
+//            printf("Fuck.");
             if (requestLength == 0) {
                 clog << "Connection is closed." << endl;
+                closesocket(clientInfo[slot].socket);
+                count--;
+                mutexAvailableSlots.lock();
+                availableSlots.insert(slot);
+                mutexAvailableSlots.unlock();
+                cout << "Number of threads(clients): " << count << endl;
+                cout << "Length of clientInfo: " << clientInfo.size() << endl;
+                cout << "Number of availableSlots: " << availableSlots.size() << endl;
+                // TODO: 移除线程
+                break;
             } else {
-                cerr << "Error occurred in receiving: " << WSAGetLastError() << "." << endl;
+//                cerr << "Error occurred in receiving: " << WSAGetLastError() << "." << endl;
             }
-            closesocket(clientInfo[slot].socket);
-            count--;
-            mutexAvailableSlots.lock();
-            availableSlots.insert(slot);
-            mutexAvailableSlots.unlock();
-            cout << "Number of threads: " << count << endl;
-            cout << "Length of clientInfo: " << clientInfo.size() << endl;
-            cout << "Length of availableSlots: " << availableSlots.size() << endl;
-            break;
         }
     }
 }
@@ -149,8 +168,7 @@ void communicate(int slot) {
 const string AlignTime(const string &num) {
     if (num.length() == 1) {
         return "0" + num;
-    }
-    else {
+    } else {
         return num;
     }
 }

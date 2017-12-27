@@ -12,6 +12,7 @@
 #include <vector>
 #include <set>
 #include <mutex>
+#include <windows.h>
 
 using namespace std;
 
@@ -22,6 +23,8 @@ struct ClientInfo {
     sockaddr_in clientAddress;
     int order;
 };
+
+void interrupt();
 
 void communicate(int slot);
 
