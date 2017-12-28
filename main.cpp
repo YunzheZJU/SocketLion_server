@@ -128,13 +128,14 @@ void interrupt() {
 
 void communicate(int slot) {
     cout << "Thread " << slot << " starts." << endl;
+    int retryCount = 0;
     while (!stopServer) {
         char request[256];
         int requestLength = recv(clientInfo[slot].socket, request, 256, 0);
         if (requestLength > 0) {
+            retryCount = 0;
             request[requestLength] = '\0';
             clog << "Data received: " << request << endl;
-
             string time = GetTime();
             string statusCode;
             string content;
@@ -148,12 +149,14 @@ void communicate(int slot) {
                 response.append("Address: " + clientInfo[slot].address + "\r\n");
                 response.append("Port: " + clientInfo[slot].port + "\r\n");
                 response.append("Time: " + time + "\r\n");
-                response.append("Server: SocketLion\r\n\r\n");
+                response.append("Server: SocketLion\r\n");
+                response.append("\r\n");
                 response.append(content);
+                response.append("\r\t\n");
                 send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
                 clog << "Response: " << response << endl;
             }
-        } else if (requestLength == 0) {
+        } else if (requestLength == 0 || retryCount > 6000) {
             clog << "Connection is closed." << endl;
             closesocket(clientInfo[slot].socket);
             count--;
@@ -165,6 +168,7 @@ void communicate(int slot) {
             cout << "Number of availableSlots: " << availableSlots.size() << endl;
             break;
         } else {
+            retryCount++;
             Sleep(100);
         }
     }
@@ -179,8 +183,10 @@ const string AlignTime(const string &num) {
     }
 }
 
-void GenerateContent(const string &request, string &statusCode, string &content, int slot) {
-    string command = request.substr(0, request.find('\r'));
+void GenerateContent(const char request[], string &statusCode, string &content, int slot) {
+    string stringRequest = request;
+    stringRequest.resize(stringRequest.size() - 3);
+    string command = stringRequest.substr(0, stringRequest.find('\r'));
     content.append("Method: " + command + "\n");
     if (command == "ALOHA") {
         content.append("Yunzhe");
@@ -209,35 +215,44 @@ void GenerateContent(const string &request, string &statusCode, string &content,
             }
         }
         statusCode = "200";
-    } else if (command == "SEND") {
-        // SEND message at once!
+    } else if (command == "SEND" || command == "REPLY") {
+        // Redirect the message
         string keywordToNumber = "ToNumber";
         string keywordToAddress = "ToAddress";
+        string keywordToPort = "ToPort";
         string separator = "\r\n\r\n";
         int toNumber;
-        string2int(toNumber, GetValue(request, keywordToNumber));
-        string toAddress = GetValue(request, keywordToAddress);
-        string message = request.substr(request.find(separator) + separator.length());
+        string2int(toNumber, GetValue(stringRequest, keywordToNumber));
+        string toAddress = GetValue(stringRequest, keywordToAddress);
+        string toPort = GetValue(stringRequest, keywordToPort);
+        string message = stringRequest.substr(stringRequest.find(separator) + separator.length());
         string fromNumber = to_string(clientInfo[slot].number);
         string fromAddress = clientInfo[slot].address;
+        string fromPort = clientInfo[slot].port;
         auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
         for (int i = 0; i < sizeOfClientInfo; i++) {
             if (availableSlots.find(i) == availableSlots.end()) {
-                if (clientInfo[i].number == toNumber && clientInfo[i].address == toAddress) {
-                    // Send the message
-                    statusCode = "302";
+                if (clientInfo[i].number == toNumber
+                    && clientInfo[i].address == toAddress
+                    && clientInfo[i].port == toPort) {
+                    // Target client is found
+                    statusCode = (command == "SEND" ? "302" : "200");
                     string time = GetTime();
                     string response = statusCode + "\r\n";
-                    response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
-                    response.append("Address: " + clientInfo[slot].address + "\r\n");
-                    response.append("Port: " + clientInfo[slot].port + "\r\n");
+                    response.append("Number: " + to_string(toNumber) + "\r\n");
+                    response.append("Address: " + toAddress + "\r\n");
+                    response.append("Port: " + toPort + "\r\n");
                     response.append("Time: " + time + "\r\n");
-                    response.append("Server: SocketLion\r\n\r\n");
+                    response.append("Server: SocketLion\r\n");
                     response.append("FromNumber: " + fromNumber + "\r\n");
-                    response.append("FromAddress: " + fromAddress + "\r\n\r\n");
+                    response.append("FromAddress: " + fromAddress + "\r\n");
+                    response.append("FromPort: " + fromPort + "\r\n");
+                    response.append("\r\n");
                     response.append("Method: " + command + "\n");
                     response.append(message);
+                    response.append("\r\t\n");
                     send(clientInfo[i].socket, response.data(), static_cast<int>(response.length()), 0);
+                    statusCode = "302";
                     break;
                 }
             }
@@ -245,40 +260,6 @@ void GenerateContent(const string &request, string &statusCode, string &content,
                 statusCode = "404";
             }
         }
-    } else if (command == "REPLY") {
-        // Send the check message to the original
-        string keywordToNumber = "ToNumber";
-        string keywordToAddress = "ToAddress";
-        string separator = "\r\n\r\n";
-        int toNumber;
-        string2int(toNumber, GetValue(request, keywordToNumber));
-        string toAddress = GetValue(request, keywordToAddress);
-        string message = request.substr(request.find(separator) + separator.length());
-        string fromNumber = to_string(clientInfo[slot].number);
-        string fromAddress = clientInfo[slot].address;
-        auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
-        for (int i = 0; i < sizeOfClientInfo; i++) {
-            if (availableSlots.find(i) == availableSlots.end()) {
-                if (clientInfo[i].number == toNumber && clientInfo[i].address == toAddress) {
-                    statusCode = "200";
-                    string time = GetTime();
-                    string response = statusCode + "\r\n";
-                    response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
-                    response.append("Address: " + clientInfo[slot].address + "\r\n");
-                    response.append("Port: " + clientInfo[slot].port + "\r\n");
-                    response.append("Time: " + time + "\r\n");
-                    response.append("Server: SocketLion\r\n\r\n");
-                    response.append("FromNumber: " + fromNumber + "\r\n");
-                    response.append("FromAddress: " + fromAddress + "\r\n\r\n");
-                    response.append("Method: " + command + "\n");
-                    response.append(message);
-                    send(clientInfo[i].socket, response.data(), static_cast<int>(response.length()), 0);
-                    statusCode = "302";
-                    break;
-                }
-            }
-        }
-
     } else {
         statusCode = "400";
     }
@@ -294,11 +275,11 @@ string GetTime() {
     SYSTEMTIME start{};
     GetLocalTime(&start);
     return to_string(start.wYear) + "/"
-                  + to_string(start.wMonth) + "/"
-                  + to_string(start.wDay) + " "
-                  + to_string(start.wHour) + ":"
-                  + AlignTime(to_string(start.wMinute)) + ":"
-                  + AlignTime(to_string(start.wSecond));
+           + to_string(start.wMonth) + "/"
+           + to_string(start.wDay) + " "
+           + to_string(start.wHour) + ":"
+           + AlignTime(to_string(start.wMinute)) + ":"
+           + AlignTime(to_string(start.wSecond));
 }
 
 void string2int(int &int_temp, const string &string_temp) {
