@@ -131,6 +131,7 @@ void communicate(int slot) {
     int retryCount = 0;
     while (!stopServer) {
         char request[256];
+        // FIXME: 多个数据包会被打包发送，造成无法理解请求。应根据数据包结束符来判断，多余的内容放回缓冲区，好在各个SOCKET间的缓冲池是独立的
         int requestLength = recv(clientInfo[slot].socket, request, 256, 0);
         if (requestLength > 0) {
             retryCount = 0;
