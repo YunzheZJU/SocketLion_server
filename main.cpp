@@ -227,17 +227,17 @@ void GenerateContent(const string &request, string &statusCode, string &content,
                     // Send the message
                     statusCode = "302";
                     string time = GetTime();
-                    string messageRequest = statusCode + "\r\n";
-                    messageRequest.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
-                    messageRequest.append("Address: " + clientInfo[slot].address + "\r\n");
-                    messageRequest.append("Port: " + clientInfo[slot].port + "\r\n");
-                    messageRequest.append("Time: " + time + "\r\n");
-                    messageRequest.append("Server: SocketLion\r\n\r\n");
-                    messageRequest.append("FromNumber: " + fromNumber + "\r\n");
-                    messageRequest.append("FromAddress: " + fromAddress + "\r\n\r\n");
-                    messageRequest.append("Method: " + command + "\n");
-                    messageRequest.append(message);
-                    send(clientInfo[i].socket, messageRequest.data(), static_cast<int>(messageRequest.length()), 0);
+                    string response = statusCode + "\r\n";
+                    response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
+                    response.append("Address: " + clientInfo[slot].address + "\r\n");
+                    response.append("Port: " + clientInfo[slot].port + "\r\n");
+                    response.append("Time: " + time + "\r\n");
+                    response.append("Server: SocketLion\r\n\r\n");
+                    response.append("FromNumber: " + fromNumber + "\r\n");
+                    response.append("FromAddress: " + fromAddress + "\r\n\r\n");
+                    response.append("Method: " + command + "\n");
+                    response.append(message);
+                    send(clientInfo[i].socket, response.data(), static_cast<int>(response.length()), 0);
                     break;
                 }
             }
@@ -246,7 +246,39 @@ void GenerateContent(const string &request, string &statusCode, string &content,
             }
         }
     } else if (command == "REPLY") {
-        // TODO: Send the check message to the original
+        // Send the check message to the original
+        string keywordToNumber = "ToNumber";
+        string keywordToAddress = "ToAddress";
+        string separator = "\r\n\r\n";
+        int toNumber;
+        string2int(toNumber, GetValue(request, keywordToNumber));
+        string toAddress = GetValue(request, keywordToAddress);
+        string message = request.substr(request.find(separator) + separator.length());
+        string fromNumber = to_string(clientInfo[slot].number);
+        string fromAddress = clientInfo[slot].address;
+        auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
+        for (int i = 0; i < sizeOfClientInfo; i++) {
+            if (availableSlots.find(i) == availableSlots.end()) {
+                if (clientInfo[i].number == toNumber && clientInfo[i].address == toAddress) {
+                    statusCode = "200";
+                    string time = GetTime();
+                    string response = statusCode + "\r\n";
+                    response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
+                    response.append("Address: " + clientInfo[slot].address + "\r\n");
+                    response.append("Port: " + clientInfo[slot].port + "\r\n");
+                    response.append("Time: " + time + "\r\n");
+                    response.append("Server: SocketLion\r\n\r\n");
+                    response.append("FromNumber: " + fromNumber + "\r\n");
+                    response.append("FromAddress: " + fromAddress + "\r\n\r\n");
+                    response.append("Method: " + command + "\n");
+                    response.append(message);
+                    send(clientInfo[i].socket, response.data(), static_cast<int>(response.length()), 0);
+                    statusCode = "302";
+                    break;
+                }
+            }
+        }
+
     } else {
         statusCode = "400";
     }
