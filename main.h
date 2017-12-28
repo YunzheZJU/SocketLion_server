@@ -37,8 +37,6 @@ void GenerateContent(const string &request, string &statusCode, string &content,
 
 string GetValue(const string &request, const string &keyword);
 
-const char* Request(SOCKET socketClient, const char request[]);
-
 string GetTime();
 
 void string2int(int &int_temp, const string &string_temp);

@@ -139,15 +139,20 @@ void communicate(int slot) {
             string statusCode;
             string content;
             GenerateContent(request, statusCode, content, slot);
-            string response = statusCode + "\r\n";
-            response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
-            response.append("Address: " + clientInfo[slot].address + "\r\n");
-            response.append("Port: " + clientInfo[slot].port + "\r\n");
-            response.append("Time: " + time + "\r\n");
-            response.append("Server: SocketLion\r\n\r\n");
-            response.append(content);
-            send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
-            clog << "Response: " << response << endl;
+            if (statusCode == "302") {
+                // Message has been sent to another client in GenerateContent.
+                clog << "Another thread will take over my work!" << endl;
+            } else {
+                string response = statusCode + "\r\n";
+                response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
+                response.append("Address: " + clientInfo[slot].address + "\r\n");
+                response.append("Port: " + clientInfo[slot].port + "\r\n");
+                response.append("Time: " + time + "\r\n");
+                response.append("Server: SocketLion\r\n\r\n");
+                response.append(content);
+                send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
+                clog << "Response: " << response << endl;
+            }
         } else if (requestLength == 0) {
             clog << "Connection is closed." << endl;
             closesocket(clientInfo[slot].socket);
@@ -212,19 +217,27 @@ void GenerateContent(const string &request, string &statusCode, string &content,
         int toNumber;
         string2int(toNumber, GetValue(request, keywordToNumber));
         string toAddress = GetValue(request, keywordToAddress);
-        string requestContent = request.substr(request.find(separator) + separator.length());
+        string message = request.substr(request.find(separator) + separator.length());
         string fromNumber = to_string(clientInfo[slot].number);
+        string fromAddress = clientInfo[slot].address;
         auto sizeOfClientInfo = static_cast<int>(clientInfo.size());
         for (int i = 0; i < sizeOfClientInfo; i++) {
             if (availableSlots.find(i) == availableSlots.end()) {
                 if (clientInfo[i].number == toNumber && clientInfo[i].address == toAddress) {
                     // Send the message
-                    string messageRequest = "SEND\r\n";
-                    messageRequest.append("FromNumber: " + fromNumber + "\r\n\r\n");
-                    messageRequest.append(requestContent);
-                    // Implicit conversion from const char* to string
-                    content.append(Request(clientInfo[i].socket, messageRequest.data()));
-                    statusCode = "200";
+                    statusCode = "302";
+                    string time = GetTime();
+                    string messageRequest = statusCode + "\r\n";
+                    messageRequest.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
+                    messageRequest.append("Address: " + clientInfo[slot].address + "\r\n");
+                    messageRequest.append("Port: " + clientInfo[slot].port + "\r\n");
+                    messageRequest.append("Time: " + time + "\r\n");
+                    messageRequest.append("Server: SocketLion\r\n\r\n");
+                    messageRequest.append("FromNumber: " + fromNumber + "\r\n");
+                    messageRequest.append("FromAddress: " + fromAddress + "\r\n\r\n");
+                    messageRequest.append("Method: " + command + "\n");
+                    messageRequest.append(message);
+                    send(clientInfo[i].socket, messageRequest.data(), static_cast<int>(messageRequest.length()), 0);
                     break;
                 }
             }
@@ -232,6 +245,8 @@ void GenerateContent(const string &request, string &statusCode, string &content,
                 statusCode = "404";
             }
         }
+    } else if (command == "REPLY") {
+        // TODO: Send the check message to the original
     } else {
         statusCode = "400";
     }
@@ -241,42 +256,6 @@ string GetValue(const string &request, const string &keyword) {
     string stringToFind = keyword + ": ";
     string temp = request.substr(request.find(stringToFind) + stringToFind.length());
     return temp.substr(0, temp.find('\r'));
-}
-
-const char* Request(SOCKET socketClient, const char request[]) {
-    clog << "Sending..." << endl;
-    send(socketClient, request, static_cast<int>(strlen(request)), 0);
-    clog << "Sending...OK" << endl;
-
-    char response[256];
-    int retryCount = 0;
-    while (retryCount != 10) {
-        clog << "Receiving..." << endl;
-        int responseLength = recv(socketClient, response, 256, 0);
-        if (responseLength > 0) {
-            // FIXME: 没有信件列表，多人同时向同一人发信，会出问题
-            // FIXME: 用户的请求会被过滤
-            // FIXME: 客户端的回复没有进入到这里
-            string stringResponse = response;
-            string statusCode = stringResponse.substr(0, stringResponse.find('\r'));
-            if (statusCode == "200") {
-                clog << "Receiving...OK" << endl;
-                return "200";
-            } else {
-                retryCount++;
-                clog << "It is not a reply from the client. Retry: " << retryCount << endl;
-            }
-        } else if (responseLength == 0) {
-            clog << "Target client has closed the connection." << endl;
-            return "502";
-        } else {
-            retryCount++;
-            clog << "There is no reply from the client. Retry: " << retryCount << endl;
-            Sleep(200);
-        }
-    }
-    clog << "Receiving...failed." << endl;
-    return "500";
 }
 
 string GetTime() {
