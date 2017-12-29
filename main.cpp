@@ -1,6 +1,7 @@
 #include "main.h"
 
 vector<ClientInfo> clientInfo;
+vector<string> clientData;
 set<int> availableSlots;
 atomic_int count = {0};
 mutex mutexAvailableSlots;
@@ -92,6 +93,7 @@ int main() {
             int slot = *it;
             availableSlots.erase(it);
             clientInfo[slot] = newInfo;
+            clientData[slot] = "";
             // !important
             if (threads[slot].joinable()) {
                 threads[slot].join();
@@ -99,6 +101,7 @@ int main() {
             threads.emplace(threads.begin() + slot, communicate, slot);
         } else {
             clientInfo.push_back(newInfo);
+            clientData.emplace_back("");
             threads.emplace_back(communicate, total);
         }
         mutexAvailableSlots.unlock();
@@ -128,34 +131,43 @@ void interrupt() {
 
 void communicate(int slot) {
     cout << "Thread " << slot << " starts." << endl;
+    char request[256];
     int retryCount = 0;
     while (!stopServer) {
-        char request[256];
-        // FIXME: 多个数据包会被打包发送，造成无法理解请求。应根据数据包结束符来判断，多余的内容放回缓冲区，好在各个SOCKET间的缓冲池是独立的
+        // In some cases, many requests will be packed together so it is necessary to buffer and unpacked them by endtag
         int requestLength = recv(clientInfo[slot].socket, request, 256, 0);
         if (requestLength > 0) {
             retryCount = 0;
             request[requestLength] = '\0';
             clog << "Data received: " << request << endl;
-            string time = GetTime();
-            string statusCode;
-            string content;
-            GenerateContent(request, statusCode, content, slot);
-            if (statusCode == "302") {
-                // Message has been sent to another client in GenerateContent.
-                clog << "Another thread will take over my work!" << endl;
-            } else {
-                string response = statusCode + "\r\n";
-                response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
-                response.append("Address: " + clientInfo[slot].address + "\r\n");
-                response.append("Port: " + clientInfo[slot].port + "\r\n");
-                response.append("Time: " + time + "\r\n");
-                response.append("Server: SocketLion\r\n");
-                response.append("\r\n");
-                response.append(content);
-                response.append("\r\t\n");
-                send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
-                clog << "Response: " << response << endl;
+            string dataAppend = request;
+            clientData[slot] += dataAppend;
+            auto endTag = clientData[slot].find("\r\t\n");
+            while (endTag != clientData[slot].npos) {
+                string time = GetTime();
+                string statusCode;
+                string content;
+                string stringRequest = clientData[slot].substr(0, endTag);
+                clientData[slot].erase(0, endTag + 3);
+//                cout << "ClientData[" << slot << "]: " << clientData[slot] << endl;
+                GenerateContent(stringRequest, statusCode, content, slot);
+                if (statusCode == "302") {
+                    // Message has been sent to another client in GenerateContent.
+                    clog << "Another thread will take over my work!" << endl;
+                } else {
+                    string response = statusCode + "\r\n";
+                    response.append("Number: " + to_string(clientInfo[slot].number) + "\r\n");
+                    response.append("Address: " + clientInfo[slot].address + "\r\n");
+                    response.append("Port: " + clientInfo[slot].port + "\r\n");
+                    response.append("Time: " + time + "\r\n");
+                    response.append("Server: SocketLion\r\n");
+                    response.append("\r\n");
+                    response.append(content);
+                    response.append("\r\t\n");
+                    send(clientInfo[slot].socket, response.data(), static_cast<int>(response.length()), 0);
+                    clog << "Response: " << response << endl;
+                }
+                endTag = clientData[slot].find("\r\t\n");
             }
         } else if (requestLength == 0 || retryCount > 6000) {
             clog << "Connection is closed." << endl;
@@ -184,10 +196,8 @@ const string AlignTime(const string &num) {
     }
 }
 
-void GenerateContent(const char request[], string &statusCode, string &content, int slot) {
-    string stringRequest = request;
-    stringRequest.resize(stringRequest.size() - 3);
-    string command = stringRequest.substr(0, stringRequest.find('\r'));
+void GenerateContent(const string &request, string &statusCode, string &content, int slot) {
+    string command = request.substr(0, request.find('\r'));
     content.append("Method: " + command + "\n");
     if (command == "ALOHA") {
         content.append("Yunzhe");
@@ -223,10 +233,10 @@ void GenerateContent(const char request[], string &statusCode, string &content, 
         string keywordToPort = "ToPort";
         string separator = "\r\n\r\n";
         int toNumber;
-        string2int(toNumber, GetValue(stringRequest, keywordToNumber));
-        string toAddress = GetValue(stringRequest, keywordToAddress);
-        string toPort = GetValue(stringRequest, keywordToPort);
-        string message = stringRequest.substr(stringRequest.find(separator) + separator.length());
+        string2int(toNumber, GetValue(request, keywordToNumber));
+        string toAddress = GetValue(request, keywordToAddress);
+        string toPort = GetValue(request, keywordToPort);
+        string message = request.substr(request.find(separator) + separator.length());
         string fromNumber = to_string(clientInfo[slot].number);
         string fromAddress = clientInfo[slot].address;
         string fromPort = clientInfo[slot].port;

@@ -33,7 +33,7 @@ void communicate(int slot);
 
 const string AlignTime(const string &num);
 
-void GenerateContent(const char request[], string &statusCode, string &content, int slot);
+void GenerateContent(const string &request, string &statusCode, string &content, int slot);
 
 string GetValue(const string &request, const string &keyword);
 
