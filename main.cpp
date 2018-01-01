@@ -121,7 +121,7 @@ int main() {
     }
     clog << "All threads are joined." << endl;
     cout << "Bye." << endl;
-    exit(0);
+    return 0;
 }
 
 void interrupt() {
